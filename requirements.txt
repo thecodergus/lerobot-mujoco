@@ -1,0 +1,9 @@
+# Requisitos para ambiente de desenvolvimento MuJoCo + Gymnasium
+numpy
+gymnasium
+# At the time of writing MuJoCo publishes pre-built Python wheels that include
+# all required runtime libraries.  Make sure you follow the official
+# installation instructions first (https://github.com/google-deepmind/mujoco).
+mujoco
+glfw  # Keyboard interaction inside the MuJoCo viewer
+# Instale o mujoco manualmente conforme instruções oficiais: https://github.com/google-deepmind/mujoco

@@ -1,0 +1,8 @@
+q/a : + / – Rotation
+w/s : + / – Pitch
+e/d : + / – Elbow
+r/f : + / – Wrist Pitch
+t/g : + / – Wrist Roll
+y/h : + / – Jaw
+z   : volta para posição “home”
+ESC : encerra
