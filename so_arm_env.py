@@ -1,30 +1,25 @@
-"""Gymnasium environment for the Standard Open Arm-100 (5-DoF) robot.
+"""Ambiente Gymnasium para o robô **Standard Open Arm-100** (5 graus de liberdade).
 
-This file provides a minimal yet *complete* reinforcement-learning friendly
-environment around the MJCF description delivered with this repository.  The
-environment can be used programmatically (e.g. by an RL algorithm) or
-executed manually from :pymod:`manual_control.py` where a small keyboard UI is
-implemented.
-
-Key design choices
-------------------
-* **Action space** – Desired joint positions (rad) for each of the six
-  position-controlled actuators listed in *so_arm100.xml* (Rotation, Pitch,
-  Elbow, Wrist_Pitch, Wrist_Roll, and Jaw).
-* **Observation space** – Concatenation of joint positions *qpos* and joint
-  velocities *qvel* (shape = ``(model.nq + model.nv,)``).
-* **Reward** – This basic environment does *not* define a task specific
-  reward; it returns ``0.0`` every step.  It is expected that downstream users
-  wrap the environment and supply a task specific reward signal (for example,
-  reaching or grasping).
-* **Episode end** – Unless terminated externally, the episode continues
-  indefinitely (``terminated = truncated = False``).
-
-If you only need to *tele-operate* the arm, run::
+Este arquivo disponibiliza um ambiente *mínimo, porém completo* para
+aprendizado por reforço (RL) utilizando a descrição MJCF incluída neste
+repositório. O ambiente pode ser usado de forma programática – por exemplo,
+por um algoritmo de RL – ou simplesmente para visualização executando::
 
     python manual_control.py
 
-That script relies on this class under the hood.
+Princípios de projeto
+--------------------
+* **Espaço de ação** – Posições desejadas (rad) para cada um dos seis
+  atuadores controlados em posição descritos em *so_arm100.xml* (Rotation,
+  Pitch, Elbow, Wrist_Pitch, Wrist_Roll e Jaw).
+* **Espaço de observação** – Concatenação das posições articulares *qpos* com
+  as velocidades *qvel* (tamanho ``model.nq + model.nv``).
+* **Recompensa** – Nenhuma tarefa é definida aqui; o método :py:meth:`step`
+  devolve sempre recompensa ``0.0``. Espera-se que o usuário crie um *wrapper*
+  fornecendo o sinal de recompensa apropriado (por exemplo, alcançar um alvo
+  ou agarrar um objeto).
+* **Término do episódio** – O episódio continua indefinidamente, a menos que
+  seja encerrado externamente (``terminated = truncated = False``).
 """
 
 from __future__ import annotations
@@ -35,16 +30,17 @@ from typing import Any, Tuple
 
 import numpy as np
 
-# Gymnasium is used for the common environment API.
+# O Gymnasium fornece a API padrão de ambientes.
 import gymnasium as gym
 
-# We *intentionally* postpone importing MuJoCo until runtime so that tooling
-# (static analysis, unit-tests that do not require the simulator, …) can work
-# without MuJoCo installed.  The import happens inside ``__init__``.
+# A importação do MuJoCo é adiada propositadamente para o *runtime* de forma
+# que ferramentas de análise estática, testes automatizados etc. possam ser
+# executados mesmo que a biblioteca não esteja instalada. A importação real
+# acontece dentro de ``__init__``.
 
 
 class SoArm100Env(gym.Env):
-    """Gymnasium environment wrapping the SO-ARM100 MJCF description."""
+    """Env. Gymnasium que encapsula a descrição MJCF do SO-ARM100."""
 
     metadata = {
         "render_modes": ["human", "rgb_array"],
@@ -52,7 +48,7 @@ class SoArm100Env(gym.Env):
     }
 
     # ---------------------------------------------------------------------
-    # Construction helpers
+    # Métodos auxiliares de construção
     # ---------------------------------------------------------------------
 
     def __init__(
@@ -61,25 +57,27 @@ class SoArm100Env(gym.Env):
         frame_skip: int = 10,
         render_mode: str | None = "human",
     ) -> None:
-        """Create a new environment instance.
+        """Cria uma nova instância do ambiente.
 
-        Parameters
+        Parâmetros
         ----------
         model_path
-            Path to the *scene.xml* that includes the *so_arm100.xml* robot
-            file.  If you prefer to load the robot directly, simply pass
-            ``"so_arm100.xml"``.
+            Caminho para o *scene.xml* que inclui o arquivo do robô
+            *so_arm100.xml*. Se preferir carregar o robô diretamente, basta
+            passar ``"so_arm100.xml"``.
         frame_skip
-            Number of simulator sub-steps performed for every call to
+            Quantidade de sub-passos da simulação realizados a cada chamada de
             :py:meth:`step`.
         render_mode
-            One of ``None``, ``"human"`` (interactive GLFW window) or
-            ``"rgb_array"``.
+            ``None`` para não renderizar, ``"human"`` para abrir a janela GLFW
+            interativa ou ``"rgb_array"`` para obter um *frame* renderizado
+            fora da tela.
         """
 
         super().__init__()
 
-        # Runtime import to avoid hard dependency at *import* time.
+        # Importação em tempo de execução para evitar dependência dura no
+        # momento de importação do módulo.
         try:
             import mujoco as _mj  # type: ignore
         except ImportError as exc:  # pragma: no cover
@@ -89,10 +87,10 @@ class SoArm100Env(gym.Env):
                 "https://github.com/google-deepmind/mujoco and ensure MuJoCo ≥3.1.6." 
             ) from exc
 
-        # Store reference to avoid re-importing each time.
-        # Expose module both as a *private* attribute and as a global symbol
-        # so that the remaining class methods (defined outside __init__) can
-        # access it without repeating the import boilerplate.
+        # Guardamos a referência para não precisar importar novamente a cada
+        # uso. Também injetamos o módulo no espaço global para que os demais
+        # métodos (definidos fora do __init__) o acessem sem repetição de
+        # código.
         global mujoco  # noqa: PLW0603 – we deliberately inject the symbol.
         mujoco = _mj
         self._mujoco = _mj
@@ -101,7 +99,7 @@ class SoArm100Env(gym.Env):
         self.render_mode = render_mode
 
         # -----------------------------------------------------------------
-        # Load MJCF model & corresponding MjData object
+        # Carrega o modelo MJCF e cria o objeto MjData correspondente
         # -----------------------------------------------------------------
         model_path = pathlib.Path(model_path).expanduser()
         if not model_path.is_file():
@@ -111,21 +109,21 @@ class SoArm100Env(gym.Env):
         self.data = mujoco.MjData(self.model)
 
         # -----------------------------------------------------------------
-        # Action & observation spaces
+        # Define espaços de ação e observação
         # -----------------------------------------------------------------
         self._setup_spaces()
 
         # -----------------------------------------------------------------
-        # Optional viewer (created lazily on first render)
+        # Viewer opcional (instanciado sob demanda na primeira renderização)
         # -----------------------------------------------------------------
         self._viewer: "mujoco.viewer.Viewer | None" = None
 
-        # Pre-compute mapping *actuator name → index* for convenience.
+        # Pré-calcula mapeamento *nome do atuador → índice* para conveniência.
         self._actuator_name_to_id = self._build_actuator_index()
 
-        # Save a copy of the *home* position defined in so_arm100.xml.  Should
-        # the XML be modified and the keyframe removed, we gracefully fall
-        # back to a zero vector.
+        # Armazena uma cópia da posição *home* definida em *so_arm100.xml*.
+        # Caso o keyframe seja removido do XML, caimos para vetores de zeros
+        # sem quebrar a execução.
         self._home_qpos = np.zeros(self.model.nq, dtype=np.float32)
         self._home_ctrl = np.zeros(self.model.nu, dtype=np.float32)
         self._extract_home_keyframe()
@@ -142,14 +140,14 @@ class SoArm100Env(gym.Env):
     ) -> Tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
 
-        # Reset qpos/qvel as well as actuator targets (ctrl).
+        # Reinicia qpos/qvel e também os comandos dos atuadores (ctrl).
         mujoco.mj_resetData(self.model, self.data)
 
         self.data.qpos[:] = self._home_qpos
         self.data.qvel[:] = 0.0
         self.data.ctrl[:] = self._home_ctrl
 
-        # Ensure internal forward dynamics are consistent with the new state.
+        # Garante que a dinâmica interna esteja consistente com o novo estado.
         mujoco.mj_forward(self.model, self.data)
 
         observation = self._get_obs()
@@ -160,7 +158,7 @@ class SoArm100Env(gym.Env):
         return observation, info
 
     def step(self, action: np.ndarray):
-        # Clip the desired joint positions to the ctrl range.
+        # Limita a ação ao intervalo permitido pelo atuador.
         action = np.clip(action, self.action_space.low, self.action_space.high)
         self.data.ctrl[:] = action
 
@@ -169,7 +167,7 @@ class SoArm100Env(gym.Env):
 
         observation = self._get_obs()
 
-        # By default no task specific reward or termination condition.
+        # Sem recompensa ou condição de término específicas por padrão.
         reward = 0.0
         terminated = False
         truncated = False
@@ -183,22 +181,21 @@ class SoArm100Env(gym.Env):
     def render(self, mode: str | None = None):  # type: ignore[override]
         mode = mode or self.render_mode
         if mode is None:
-            return  # No render.
+            return  # Sem renderização.
 
         if mode == "human":
-            # Lazy-instantiate viewer (GLFW window) once.
+            # Instancia o viewer (janela GLFW) apenas na primeira chamada.
             if self._viewer is None:
                 from mujoco import viewer as mj_viewer
 
-                # Passive viewer does not take ownership of the context via
-                # `with` and therefore stays alive until `.close()` is
-                # called.
+                # O *viewer passivo* não assume o contexto via ``with``; ele
+                # permanece vivo até que ``.close()`` seja chamado.
                 self._viewer = mj_viewer.launch_passive(self.model, self.data)
 
-            # Make sure the viewer is up to date.
+            # Mantém a janela sincronizada com a simulação.
             self._viewer.sync()
         elif mode == "rgb_array":
-            # Off-screen render – allocate the first time and reuse.
+            # Renderização fora da tela – aloca na primeira chamada e reutiliza.
             if not hasattr(self, "_renderer"):
                 self._renderer = mujoco.Renderer(self.model, 640, 480)
 
@@ -208,17 +205,17 @@ class SoArm100Env(gym.Env):
             raise NotImplementedError(f"Unsupported render mode '{mode}'")
 
     def close(self):  # type: ignore[override]
-        # Clean up viewer if it was created.
+        # Fecha a janela do viewer caso ela tenha sido criada.
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
 
     # ------------------------------------------------------------------
-    # Helper methods
+    # Métodos auxiliares públicos
     # ------------------------------------------------------------------
 
     def _setup_spaces(self):
-        """Populate :pyattr:`action_space` and :pyattr:`observation_space`."""
+        """Cria :pyattr:`action_space` e :pyattr:`observation_space`."""
 
         ctrl_range = self.model.actuator_ctrlrange.copy()
         self.action_space = gym.spaces.Box(
@@ -231,16 +228,16 @@ class SoArm100Env(gym.Env):
         self.observation_space = gym.spaces.Box(-obs_high, obs_high, dtype=np.float32)
 
     def _get_obs(self) -> np.ndarray:
-        """Return the current observation vector (qpos‖qvel)."""
+        """Retorna o vetor de observação atual (*qpos*‖*qvel*)."""
 
         return np.concatenate([self.data.qpos, self.data.qvel]).astype(np.float32)
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Métodos auxiliares internos
     # ------------------------------------------------------------------
 
     def _build_actuator_index(self):
-        """Return mapping *actuator name → actuator id*."""
+        """Gera um dicionário *nome do atuador → id do atuador*."""
 
         name_to_id: dict[str, int] = {}
         for i in range(self.model.nu):
@@ -248,7 +245,7 @@ class SoArm100Env(gym.Env):
             if name_val is None:
                 continue
 
-            # MuJoCo <3.1.6 returned ``bytes`` whereas 3.1.7+ returns ``str``.
+            # MuJoCo < 3.1.6 devolvia ``bytes`` enquanto ≥ 3.1.7 devolve ``str``.
             if isinstance(name_val, bytes):
                 name_val = name_val.decode()
 
@@ -256,7 +253,7 @@ class SoArm100Env(gym.Env):
         return name_to_id
 
     def _extract_home_keyframe(self):
-        """Populate *home* qpos/ctrl from the XML *keyframe* named "home"."""
+        """Extrai *qpos*/*ctrl* do keyframe chamado "home" dentro do XML."""
 
         for key_id in range(self.model.nkey):
             key_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_KEY, key_id)
@@ -268,10 +265,10 @@ class SoArm100Env(gym.Env):
                 key_name = key_name.decode()
 
             if key_name == "home":
-                # Keyframe stores qpos (-> size nq), qvel (nv) and ctrl (nu).
+                # O keyframe armazena qpos (nq), qvel (nv) e ctrl (nu).
                 self._home_qpos = self.model.key_qpos[key_id].copy()
                 if self.model.nu:
                     self._home_ctrl = self.model.key_ctrl[key_id].copy()
                 return
 
-        # Fallback: already initialised with zeros.
+        # Caso não exista keyframe "home": vetores já iniciados em zero.
